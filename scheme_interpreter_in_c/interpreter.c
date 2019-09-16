@@ -1,235 +1,235 @@
 #include <stdio.h>
-#include <ctype.h>
-#include <stdlib.h>
-#include <string.h>
-typedef enum
+#include<stdlib.h>
+#include<ctype.h>
+#include<string.h>
+enum
 {
-	FIXNUM,
-	BOOLEAN,
-	CHAR,
-	STRING
-} object_type;
+	T_INT,
+	T_CELL,
+	T_SYMBOL,
+	T_PRIMITIVE,
+	T_FUNCTION,
+	T_MACRO,
+	T_ENV,
+	T_NIL,
+	T_PAREN,
+	T_DOT,
+	T_TRUE
 
-typedef struct object
+};
+
+typedef struct Obj
 {
-	object_type type;
+	int type;
 	union {
-		long fixnum;
-		char boolean;
-		char character;
+		int value;
+		struct
+		{
+			struct Obj *car;
+			struct Obj *cdr;
+		};
 		char *str;
-	} data;
+		struct
+		{
 
-} object;
+			struct Obj *vars;
+			struct Obj *up;
+		};
+	};
+} Obj;
 
-object * false, *true;
-#define BUFFER_MAX 1024
+static Obj *Nil;
+static Obj *Dot;
+static Obj *Par;
+static Obj *True;
 
-void init()
-{
-	false = malloc(sizeof(object));
-	false->type = BOOLEAN;
-	false->data.boolean = 0;
-	true = malloc(sizeof(object));
-	true->type = BOOLEAN;
-	true->data.boolean = 1;
-}
+//环境
+static Obj *env;
+//符号表
+static Obj *symbols;
 
-int peek(FILE *in)
-{
-	int c = getc(in);
-	ungetc(c, in);
-	return c;
-}
-int is_delimeter(char x)
-{
-	return (isspace(x) || x == '(' || x == ')' || x == '"');
-}
-void eat_whitespace(FILE *in)
-{
-	int c;
-	while ((c = getc(in)) != EOF)
-	{
-		if (isspace(c))
-			continue;
-		ungetc(c, in);
-		break;
-	}
-}
-
-object *make_fixnum(long value)
-{
-
-	object *o = malloc(sizeof(object));
-	if (o == NULL)
-	{
-		return NULL;
-	}
-	o->type = FIXNUM;
-	o->data.fixnum = value;
+Obj *make_sym(char *);
+Obj *cons(Obj *car,Obj *cdr){
+	Obj *o =malloc(sizeof(Obj));
+	o->car=car;
+	o->cdr=cdr;
 	return o;
 }
-object *make_char(char c)
-{
-	object *o = malloc(sizeof(object));
-	if (o == NULL)
-	{
-		return NULL;
-	}
-	o->type = CHAR;
-	o->data.character = c;
-	return o;
+
+void add_var(Obj *env,Obj *sym ,Obj *val){
+	env->vars=cons(cons(sym,val),env->vars);
 }
-void eat_expect_str(FILE *in, char *str)
-{
-	int c = getc(in);
-	while (*str != '\0')
-	{
-		if (c != *str)
-		{
-			printf("unexpected character\n");
-			break;
-		}
-		str++;
-		c = getc(in);
-	}
-}
-object *make_string(char* str){
-	char *dest=malloc(strlen(str)+1);
-	strcpy(dest,str);
-	object *o=malloc(sizeof(object));
-	o->type=STRING;
-	o->data.str=dest;
-	return o;
-}
-object *read_char(FILE *in)
-{
-	int c = getc(in);
-	switch (c)
-	{
-	case 's':
-		if (peek(in) == 'p')
-		{
-			eat_expect_str(in, "pace");
-			return make_char(' ');
-		}
-		break;
-	case 'n':
-		if (peek(in) == 'e')
-		{
-			eat_expect_str(in, "ewline");
-			return make_char('\n');
-		}
-	default:
-		break;
-	}
-	return make_char(c);
-}
-void peek_expect_delim(FILE *in)
-{
-	if (!is_delimeter(peek(in)))
-	{
-		printf("expect a delimeter\n");
-	}
-}
-object *read(FILE *in)
-{
-	eat_whitespace(in);
-	char buffer[BUFFER_MAX];
-	int c = getc(in);
-	long num = 0;
-	int sign = 1;
-	
-	if(c=='"'){
-		int i=0;
-		while((c=getc(in))!='"'){
-			if(c=='\\'&&peek(in)=='n'){
-				getc(in);
-				c='\n';
+Obj *find(Obj *env,Obj* sym){
+	for(Obj *p=env ;p;p=p->up){
+		for(Obj *x=p->vars;x!=Nil;x=x->cdr){
+			Obj *bind=x->car;
+			if(bind->car==sym){
+				return bind->cdr;
 			}
-			buffer[i++]=c;
 		}
-		buffer[i]='\0';
-		return make_string(buffer);
 	}
 	
-	if (c == '#')
-	{
-		c = getc(in);
-		switch (c)
-		{
-		case 't':
-			return true;
-		case 'f':
-			return false;
-		case '\\':
-			return read_char(in);
-		default:
-			return NULL;
-		}
-	}
-	if (isdigit(c) || c == '-')
-	{
-		if (c == '-')
-		{
-			c = getc(in);
-			sign = -1;
-		}
-
-		do
-		{
-			num = num * 10 + c - '0';
-			c = getc(in);
-		} while (isdigit(c));
-		ungetc(c, in);
-		num *= sign;
-		return make_fixnum(num);
-	}
-	return NULL;
 }
-void print(object *o)
+
+Obj *intern(char *name)
+{
+	for (Obj *p = symbols; p != Nil; p = p->cdr)
+	{
+			if(strcmp(p->car->str,name)==0){
+				return p->car;
+			}
+	}
+	Obj *sym=make_sym(name);
+	symbols=cons(sym,symbols);
+	return sym;
+}
+
+Obj *make_sym(char *name)
+{
+	Obj *o = malloc(sizeof(Obj));
+	o->str = name;
+	o->type = T_SYMBOL;
+	return o;
+}
+
+Obj *make_special(int type)
+{
+	Obj *o = malloc(sizeof(Obj));
+	o->type = type;
+	return o;
+}
+//vars是用来干嘛的
+Obj *make_env(Obj *vars, Obj *up)
+{
+	Obj *env = malloc(sizeof(Obj));
+	env->vars = vars;
+	env->up = up;
+	return env;
+}
+
+Obj *make_int(int num){
+	Obj *o=malloc(sizeof(Obj));
+	o->type=T_INT;
+	o->value=num;
+	return o;
+}
+
+Obj *eval(Obj *env, Obj *obj)
+{
+	switch (obj->type)
+	{
+	case T_INT:
+	case T_NIL:
+	case T_PAREN:
+		return obj;
+	case T_SYMBOL:
+		return find(env,obj);
+	default:
+		return NULL;
+	}
+}
+
+void print(Obj *o)
 {
 	switch (o->type)
 	{
-	case FIXNUM:
-		printf("%d\n", o->data.fixnum);
-		break;
-	case BOOLEAN:
-		printf("#%c\n", o->data.boolean == 0 ? 'f' : 't');
-		break;
-	case CHAR:
-		printf("#\\");
-		switch (o->data.character)
-		{
-		case '\n':
-			printf("newline\n");
-			break;
-		case ' ':
-			printf("space\n");
-			break;
-		default:
-			printf("%c\n", o->data.character);
-			break;
-		}
-		break;
-	case STRING:
-	printf("%s\n",o->data.str);
-	break;
-	default:
-		break;
+	case T_INT:
+		printf("%d", o->value);
+		return;
+	case T_SYMBOL:
+		printf("%s",o->str);
+	case T_TRUE:
+		printf("#t");
+	
 	}
+	
+}
+int peek(FILE *in){
+	int c=getc(in);
+	ungetc(c,in);
+	return c;
+}
+
+Obj * read_sym(FILE *in){
+	char buf[1024];
+	int c=getc(in);
+	int i=0;
+	while(isalpha(c)){
+		buf[i++]=c;
+		c=getc(in);
+	}
+	buf[i]='\0';
+	Obj* o=intern(buf);
+	return o;
+}
+
+int read_num(FILE *in){
+	int c;
+	int sum=0;
+	int sign=1;
+	c=getc(in);
+	while(isdigit(c)||c=='-'){
+		if(c=='-'){
+			sign=-1;
+			c=getc(in);
+			continue;
+		}
+		sum=sum*10+c-'0';
+		c=getc(in);
+	}
+	sum*=sign;
+	ungetc(c,in);
+	return sum;
+}
+
+Obj *read(FILE *in)
+{
+	int c;
+	while (1)
+	{
+		c = getc(in);
+		if (isspace(c))
+			continue;
+		if (c == NULL)
+			return NULL;
+		if(isdigit(c)||c=='-'){
+			ungetc(c,in);
+			Obj *num=make_int(read_num(in));
+			return num;
+		}
+		if(isalpha(c)){
+			ungetc(c,in);
+			Obj * sym=read_sym(in);
+			return sym;
+		}
+	}
+}
+
+void define_constant(Obj *env){
+	Obj *sym=intern("t");
+	add_var(env,sym,True);
 }
 
 int main()
 {
-
-	printf("***********the interpreter start***************\n\n");
-	init();
-	while (1)
-	{
+	//给一些单例的常量赋值
+	Nil = make_special(T_NIL);
+	Dot = make_special(T_DOT);
+	Par = make_special(T_PAREN);
+	True = make_special(T_TRUE);
+	symbols=Nil;
+	//环境
+	env = make_env(Nil, NULL);
+	//内置的value
+	define_constant(env);
+	//内置的函数
+	
+	printf("******Welcom to Lisp World******\n\n");
+	while(1){
 		printf(">");
-		object *o = read(stdin);
-		print(o);
+		Obj *exp=read(stdin);
+		print(eval(env,exp));
+		printf("\n");
 	}
 
 	return 0;
