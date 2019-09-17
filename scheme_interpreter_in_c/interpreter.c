@@ -46,6 +46,8 @@ Obj *read(FILE *in);
 Obj *intern(char *);
 Obj *make_fun(Primitive *);
 Obj *make_int(int);
+Obj *eval_list(Obj *,Obj *);
+Obj *eval(Obj *,Obj *);
 
 static Obj *Nil;
 static Obj *Dot;
@@ -75,12 +77,18 @@ Obj *prim_quote(Obj *env,Obj *args){
 
 Obj *prim_plus(Obj *env,Obj *args){
 	int sum=0;
+	args=eval_list(env,args);
 	while(args!=Nil){
 		sum+=args->car->value;
 		args=args->cdr;
 	}	
 	return make_int(sum);
 }
+
+Obj *prim_list(Obj *env,Obj *args){
+	return eval_list(env,args);
+}
+
 
 Obj *make_sym(char *);
 Obj *cons(Obj *car,Obj *cdr){
@@ -163,6 +171,21 @@ Obj *apply(Obj *env,Obj *fn ,Obj  *args){
 	return fn->fn(env,args);
 }
 
+Obj *eval_list(Obj *env,Obj *list){
+	Obj *head=NULL,*tail=NULL;
+	for(Obj *p=list;p!=Nil;p=p->cdr){
+		Obj * o=eval(env,p->car);
+		if(head==NULL){
+			head=tail=cons(o,Nil);
+		}else{
+			tail->cdr=cons(o,Nil);
+			tail=tail->cdr;
+		}
+		
+	}
+	return head;
+}
+
 Obj *eval(Obj *env, Obj *obj)
 {
 	switch (obj->type)
@@ -202,7 +225,6 @@ void print(Obj *o)
 	case T_TRUE:
 		printf("#t");
 	case T_CELL:
-	return;
 		printf("(");
 		while(1){
 			if(o->type==T_CELL){
@@ -300,7 +322,7 @@ Obj *read(FILE *in)
 		c = getc(in);
 		if (isspace(c))
 			continue;
-		if (c == NULL)
+		if (c ==EOF)
 			return NULL;
 		if(c=='.'){
 			return Dot;
@@ -332,6 +354,7 @@ void define_constant(Obj *env){
 void define_prim_function(Obj *env){
 	add_prim(env,"quote",prim_quote);
 	add_prim(env,"+",prim_plus);
+	add_prim(env,"list",prim_list);
 }
 int main()
 {
@@ -341,6 +364,7 @@ int main()
 	Par = make_special(T_PAREN);
 	True = make_special(T_TRUE);
 	CParen=make_special(T_PAREN);
+	//符号池
 	symbols=Nil;
 	//环境
 	env = make_env(Nil, NULL);		
