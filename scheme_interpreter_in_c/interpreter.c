@@ -14,9 +14,12 @@ enum
 	T_NIL,
 	T_PAREN,
 	T_DOT,
-	T_TRUE
+	T_TRUE,
+	T_CParen
 
 };
+struct Obj;
+typedef struct Obj *Primitive(struct Obj *env ,struct Obj *args);
 
 typedef struct Obj
 {
@@ -29,6 +32,7 @@ typedef struct Obj
 			struct Obj *cdr;
 		};
 		char *str;
+		Primitive *fn;
 		struct
 		{
 
@@ -38,21 +42,40 @@ typedef struct Obj
 	};
 } Obj;
 
+Obj *read(FILE *in);
+
 static Obj *Nil;
 static Obj *Dot;
 static Obj *Par;
 static Obj *True;
+static Obj *CParen;
 
 //环境
 static Obj *env;
 //符号表
 static Obj *symbols;
 
+int list_length(Obj *list){
+	int len=0;
+	while(1){
+	if(list==Nil){
+		return len;
+	}
+	list=list->cdr;
+	len++;
+	 }
+}
+
+Obj *prim_quote(Obj *env,Obj *args){
+	return args->car;
+}
+
 Obj *make_sym(char *);
 Obj *cons(Obj *car,Obj *cdr){
 	Obj *o =malloc(sizeof(Obj));
 	o->car=car;
 	o->cdr=cdr;
+	o->type=T_CELL;
 	return o;
 }
 
@@ -124,6 +147,8 @@ Obj *eval(Obj *env, Obj *obj)
 		return obj;
 	case T_SYMBOL:
 		return find(env,obj);
+	case T_CELL:
+		return obj;
 	default:
 		return NULL;
 	}
@@ -140,7 +165,28 @@ void print(Obj *o)
 		printf("%s",o->str);
 	case T_TRUE:
 		printf("#t");
-	
+	case T_CELL:
+		printf("(");
+		while(1){
+			if(o->type==T_CELL){
+				print(o->car);
+			}else{
+				print(o);
+			}
+			
+			if(o->type!=T_CELL){
+				  break;
+			}
+			if(o->cdr->type!=T_CELL){
+				printf(" . ");
+			}else{
+				printf(" ");
+			}
+			o=o->cdr;
+			
+		}
+		printf(")");
+		return;
 	}
 	
 }
@@ -182,6 +228,33 @@ int read_num(FILE *in){
 	return sum;
 }
 
+Obj *read_list(FILE *in){
+	int c=getc(in);
+	if(c==')')
+		return Nil;
+	ungetc(c,in);
+
+	Obj *head,*tail;
+	Obj *o=read(in);
+	head=tail=cons(o,Nil);
+	while(1){
+		o=read(in);
+		if(o==CParen){
+			return head;
+		}
+		if(o==Dot){
+			o=read(in);
+			tail->cdr=o;
+			if(read(in)!=CParen){
+				printf("括号没关\n");
+			}
+			return head;
+		}
+		tail->cdr=cons(o,Nil);
+		tail=tail->cdr;
+	}
+}
+
 Obj *read(FILE *in)
 {
 	int c;
@@ -192,6 +265,12 @@ Obj *read(FILE *in)
 			continue;
 		if (c == NULL)
 			return NULL;
+		if(c=='.'){
+			return Dot;
+		}
+		if(c==')'){
+			return CParen;
+		}
 		if(isdigit(c)||c=='-'){
 			ungetc(c,in);
 			Obj *num=make_int(read_num(in));
@@ -202,6 +281,9 @@ Obj *read(FILE *in)
 			Obj * sym=read_sym(in);
 			return sym;
 		}
+		if(c=='('){
+			return read_list(in);
+		}
 	}
 }
 
@@ -210,6 +292,9 @@ void define_constant(Obj *env){
 	add_var(env,sym,True);
 }
 
+void define_prim_function(Obj *env){
+
+}
 int main()
 {
 	//给一些单例的常量赋值
@@ -217,13 +302,14 @@ int main()
 	Dot = make_special(T_DOT);
 	Par = make_special(T_PAREN);
 	True = make_special(T_TRUE);
+	CParen=make_special(T_PAREN);
 	symbols=Nil;
 	//环境
-	env = make_env(Nil, NULL);
+	env = make_env(Nil, NULL);		
 	//内置的value
 	define_constant(env);
 	//内置的函数
-	
+
 	printf("******Welcom to Lisp World******\n\n");
 	while(1){
 		printf(">");
