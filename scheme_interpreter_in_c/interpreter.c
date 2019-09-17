@@ -43,6 +43,9 @@ typedef struct Obj
 } Obj;
 
 Obj *read(FILE *in);
+Obj *intern(char *);
+Obj *make_fun(Primitive *);
+Obj *make_int(int);
 
 static Obj *Nil;
 static Obj *Dot;
@@ -70,6 +73,15 @@ Obj *prim_quote(Obj *env,Obj *args){
 	return args->car;
 }
 
+Obj *prim_plus(Obj *env,Obj *args){
+	int sum=0;
+	while(args!=Nil){
+		sum+=args->car->value;
+		args=args->cdr;
+	}	
+	return make_int(sum);
+}
+
 Obj *make_sym(char *);
 Obj *cons(Obj *car,Obj *cdr){
 	Obj *o =malloc(sizeof(Obj));
@@ -81,6 +93,11 @@ Obj *cons(Obj *car,Obj *cdr){
 
 void add_var(Obj *env,Obj *sym ,Obj *val){
 	env->vars=cons(cons(sym,val),env->vars);
+}
+void add_prim(Obj *env,char *name ,Primitive *fn){
+	Obj *sym=intern(name);
+	Obj *fun = make_fun(fn);
+	add_var(env,sym,fun);
 }
 Obj *find(Obj *env,Obj* sym){
 	for(Obj *p=env ;p;p=p->up){
@@ -136,6 +153,15 @@ Obj *make_int(int num){
 	o->value=num;
 	return o;
 }
+Obj *make_fun(Primitive *fn){
+	Obj *o =malloc(sizeof(Obj));
+	o->type=T_PRIMITIVE;
+	o->fn=fn;
+	return o;
+}
+Obj *apply(Obj *env,Obj *fn ,Obj  *args){
+	return fn->fn(env,args);
+}
 
 Obj *eval(Obj *env, Obj *obj)
 {
@@ -145,10 +171,20 @@ Obj *eval(Obj *env, Obj *obj)
 	case T_NIL:
 	case T_PAREN:
 		return obj;
-	case T_SYMBOL:
+	case T_SYMBOL:{
 		return find(env,obj);
-	case T_CELL:
-		return obj;
+	}
+
+		
+	case T_CELL:{
+		Obj *fn =eval(env,obj->car);
+		Obj *args=obj->cdr;
+		return apply(env,fn,args);
+		// printf("eval:%s\n",obj->car->str);
+		// printf("eval:%d\n",obj->cdr->car->value);
+		// printf("eval:%d\n",obj->cdr->cdr->car->value);
+		// return obj;
+	}
 	default:
 		return NULL;
 	}
@@ -166,6 +202,7 @@ void print(Obj *o)
 	case T_TRUE:
 		printf("#t");
 	case T_CELL:
+	return;
 		printf("(");
 		while(1){
 			if(o->type==T_CELL){
@@ -174,12 +211,12 @@ void print(Obj *o)
 				print(o);
 			}
 			
-			if(o->type!=T_CELL){
+			if(o->type!=T_CELL||o->cdr==Nil){
 				  break;
 			}
 			if(o->cdr->type!=T_CELL){
 				printf(" . ");
-			}else{
+			}else {
 				printf(" ");
 			}
 			o=o->cdr;
@@ -200,7 +237,7 @@ Obj * read_sym(FILE *in){
 	char buf[1024];
 	int c=getc(in);
 	int i=0;
-	while(isalpha(c)){
+	while(isalpha(c)||c=='+'){
 		buf[i++]=c;
 		c=getc(in);
 	}
@@ -276,7 +313,7 @@ Obj *read(FILE *in)
 			Obj *num=make_int(read_num(in));
 			return num;
 		}
-		if(isalpha(c)){
+		if(isalpha(c)||c=='+'){
 			ungetc(c,in);
 			Obj * sym=read_sym(in);
 			return sym;
@@ -293,7 +330,8 @@ void define_constant(Obj *env){
 }
 
 void define_prim_function(Obj *env){
-
+	add_prim(env,"quote",prim_quote);
+	add_prim(env,"+",prim_plus);
 }
 int main()
 {
@@ -309,6 +347,7 @@ int main()
 	//内置的value
 	define_constant(env);
 	//内置的函数
+	define_prim_function(env);
 
 	printf("******Welcom to Lisp World******\n\n");
 	while(1){
