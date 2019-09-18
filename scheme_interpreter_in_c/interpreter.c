@@ -48,6 +48,8 @@ Obj *make_fun(Primitive *);
 Obj *make_int(int);
 Obj *eval_list(Obj *,Obj *);
 Obj *eval(Obj *,Obj *);
+Obj *find(Obj *,Obj *);
+void add_var(Obj *,Obj *,Obj *);
 
 static Obj *Nil;
 static Obj *Dot;
@@ -59,6 +61,16 @@ static Obj *CParen;
 static Obj *env;
 //符号表
 static Obj *symbols;
+
+
+static void error(char *err){
+	fprintf(stderr,err);
+	exit(1);
+}
+static void show_env(Obj *env){
+	Obj *vars=env->vars;
+	
+}
 
 int list_length(Obj *list){
 	int len=0;
@@ -89,6 +101,28 @@ Obj *prim_list(Obj *env,Obj *args){
 	return eval_list(env,args);
 }
 
+Obj *prim_define(Obj *env,Obj *args){
+
+	Obj *sym=args->car;
+	Obj *val=args->cdr->car;
+	Obj *new_val=eval(env,val);
+	add_var(env,sym,new_val);
+	return new_val;
+}
+
+Obj *prim_setq(Obj *env,Obj *args){
+	Obj *sym=args->car;
+	Obj *val=args->cdr->car;
+	Obj *o=find(env,sym);
+	if(o==Nil){
+		printf("unknown symbol: %s",sym->str);
+		exit(1);
+	}
+	Obj *new_arg=eval(env,val);
+	o->cdr=new_arg;
+	return new_arg;
+}
+
 
 Obj *make_sym(char *);
 Obj *cons(Obj *car,Obj *cdr){
@@ -112,10 +146,11 @@ Obj *find(Obj *env,Obj* sym){
 		for(Obj *x=p->vars;x!=Nil;x=x->cdr){
 			Obj *bind=x->car;
 			if(bind->car==sym){
-				return bind->cdr;
+				return bind;
 			}
 		}
 	}
+	return Nil;
 	
 }
 
@@ -135,7 +170,8 @@ Obj *intern(char *name)
 Obj *make_sym(char *name)
 {
 	Obj *o = malloc(sizeof(Obj));
-	o->str = name;
+	o->str =malloc(strlen(name)+1);
+	strcpy(o->str,name);
 	o->type = T_SYMBOL;
 	return o;
 }
@@ -195,7 +231,12 @@ Obj *eval(Obj *env, Obj *obj)
 	case T_PAREN:
 		return obj;
 	case T_SYMBOL:{
-		return find(env,obj);
+		Obj *bind=find(env,obj);
+		if(bind==Nil){
+			printf("symbol %s is not defined",obj->str);
+			exit(1);
+		}
+		return bind->cdr;
 	}
 
 		
@@ -203,9 +244,9 @@ Obj *eval(Obj *env, Obj *obj)
 		Obj *fn =eval(env,obj->car);
 		Obj *args=obj->cdr;
 		return apply(env,fn,args);
-		// printf("eval:%s\n",obj->car->str);
-		// printf("eval:%d\n",obj->cdr->car->value);
-		// printf("eval:%d\n",obj->cdr->cdr->car->value);
+		// // printf("eval:%s\n",obj->car->str);
+		// // printf("eval:%d\n",obj->cdr->car->value);
+		// // printf("eval:%d\n",obj->cdr->cdr->car->value);
 		// return obj;
 	}
 	default:
@@ -305,7 +346,7 @@ Obj *read_list(FILE *in){
 			o=read(in);
 			tail->cdr=o;
 			if(read(in)!=CParen){
-				printf("括号没关\n");
+				printf("parenthesis not closed\n");
 			}
 			return head;
 		}
@@ -355,6 +396,8 @@ void define_prim_function(Obj *env){
 	add_prim(env,"quote",prim_quote);
 	add_prim(env,"+",prim_plus);
 	add_prim(env,"list",prim_list);
+	add_prim(env,"setq",prim_setq);
+	add_prim(env,"define",prim_define);
 }
 int main()
 {
