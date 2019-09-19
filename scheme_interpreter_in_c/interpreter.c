@@ -39,16 +39,24 @@ typedef struct Obj
 			struct Obj *vars;
 			struct Obj *up;
 		};
+		struct {
+			struct Obj *params;
+			struct Obj *body;
+			struct Obj *env;
+		};
 	};
 } Obj;
 
 Obj *read(FILE *in);
 Obj *intern(char *);
-Obj *make_fun(Primitive *);
+Obj *make_prim(Primitive *);
 Obj *make_int(int);
 Obj *eval_list(Obj *,Obj *);
+Obj *progn(Obj *,Obj *);
 Obj *eval(Obj *,Obj *);
 Obj *find(Obj *,Obj *);
+Obj *make_env(Obj *,Obj *);
+Obj *make_function(Obj *,Obj *,Obj *);
 void add_var(Obj *,Obj *,Obj *);
 
 static Obj *Nil;
@@ -110,6 +118,12 @@ Obj *prim_define(Obj *env,Obj *args){
 	return new_val;
 }
 
+Obj *prim_lambda(Obj *env,Obj *args){
+	Obj *params=args->car;
+	Obj *body=args->cdr;
+	return make_function(params,body,env);
+}
+
 Obj *prim_setq(Obj *env,Obj *args){
 	Obj *sym=args->car;
 	Obj *val=args->cdr->car;
@@ -138,7 +152,7 @@ void add_var(Obj *env,Obj *sym ,Obj *val){
 }
 void add_prim(Obj *env,char *name ,Primitive *fn){
 	Obj *sym=intern(name);
-	Obj *fun = make_fun(fn);
+	Obj *fun = make_prim(fn);
 	add_var(env,sym,fun);
 }
 Obj *find(Obj *env,Obj* sym){
@@ -176,13 +190,35 @@ Obj *make_sym(char *name)
 	return o;
 }
 
+Obj *make_function(Obj *params,Obj *body,Obj *env){
+	Obj *o=malloc(sizeof(Obj));
+	o->params=params;
+	o->body=body;
+	o->env=env;
+	o->type=T_FUNCTION;
+	return o;
+}
+
 Obj *make_special(int type)
 {
 	Obj *o = malloc(sizeof(Obj));
 	o->type = type;
 	return o;
 }
-//vars是用来干嘛的
+
+Obj *push_env(Obj *env,Obj *vars,Obj *vals){
+	Obj *p=vars,*q=vals;
+	Obj *frame=Nil;
+	while(p!=Nil&&q!=Nil){
+		Obj *bind=cons(p->car,q->car);
+		frame=cons(bind,frame);
+		p=p->cdr;
+		q=q->cdr;
+	}
+	return make_env(frame,env);
+	
+}
+
 Obj *make_env(Obj *vars, Obj *up)
 {
 	Obj *env = malloc(sizeof(Obj));
@@ -197,15 +233,33 @@ Obj *make_int(int num){
 	o->value=num;
 	return o;
 }
-Obj *make_fun(Primitive *fn){
+Obj *make_prim(Primitive *fn){
 	Obj *o =malloc(sizeof(Obj));
 	o->type=T_PRIMITIVE;
 	o->fn=fn;
 	return o;
 }
+
 Obj *apply(Obj *env,Obj *fn ,Obj  *args){
-	return fn->fn(env,args);
+	if(fn->type==T_PRIMITIVE){
+		return fn->fn(env,args);
+	}else if(fn->type==T_FUNCTION){
+		Obj *params=fn->params;
+		Obj *body=fn->body;
+		Obj *env=fn->env;
+		Obj *new_args=eval_list(env,args);
+		Obj *new_env=push_env(env,params,new_args);
+		return progn(new_env,body);
+	}
 }
+Obj *progn(Obj *env,Obj *list){
+	Obj *re=Nil;
+	for(Obj *p=list;p!=Nil;p=p->cdr){
+		re=eval(env,p->car);
+	}
+	return re;
+}
+
 
 Obj *eval_list(Obj *env,Obj *list){
 	Obj *head=NULL,*tail=NULL;
@@ -224,6 +278,7 @@ Obj *eval_list(Obj *env,Obj *list){
 
 Obj *eval(Obj *env, Obj *obj)
 {
+
 	switch (obj->type)
 	{
 	case T_INT:
@@ -237,6 +292,7 @@ Obj *eval(Obj *env, Obj *obj)
 			exit(1);
 		}
 		return bind->cdr;
+		return obj;
 	}
 
 		
@@ -244,10 +300,6 @@ Obj *eval(Obj *env, Obj *obj)
 		Obj *fn =eval(env,obj->car);
 		Obj *args=obj->cdr;
 		return apply(env,fn,args);
-		// // printf("eval:%s\n",obj->car->str);
-		// // printf("eval:%d\n",obj->cdr->car->value);
-		// // printf("eval:%d\n",obj->cdr->cdr->car->value);
-		// return obj;
 	}
 	default:
 		return NULL;
@@ -256,15 +308,21 @@ Obj *eval(Obj *env, Obj *obj)
 
 void print(Obj *o)
 {
+
 	switch (o->type)
 	{
+	case T_FUNCTION:
+		printf("<function>");
+		return;
 	case T_INT:
 		printf("%d", o->value);
 		return;
 	case T_SYMBOL:
 		printf("%s",o->str);
+		break;
 	case T_TRUE:
 		printf("#t");
+		break;
 	case T_CELL:
 		printf("(");
 		while(1){
@@ -286,7 +344,7 @@ void print(Obj *o)
 			
 		}
 		printf(")");
-		return;
+		break;
 	}
 	
 }
@@ -304,6 +362,7 @@ Obj * read_sym(FILE *in){
 		buf[i++]=c;
 		c=getc(in);
 	}
+	ungetc(c,in);
 	buf[i]='\0';
 	Obj* o=intern(buf);
 	return o;
@@ -346,7 +405,7 @@ Obj *read_list(FILE *in){
 			o=read(in);
 			tail->cdr=o;
 			if(read(in)!=CParen){
-				printf("parenthesis not closed\n");
+				printf("parenthfesis not closed\n");
 			}
 			return head;
 		}
@@ -382,7 +441,8 @@ Obj *read(FILE *in)
 			return sym;
 		}
 		if(c=='('){
-			return read_list(in);
+			Obj *o =read_list(in);
+			return o;
 		}
 	}
 }
@@ -398,6 +458,7 @@ void define_prim_function(Obj *env){
 	add_prim(env,"list",prim_list);
 	add_prim(env,"setq",prim_setq);
 	add_prim(env,"define",prim_define);
+	add_prim(env,"lambda",prim_lambda);
 }
 int main()
 {
