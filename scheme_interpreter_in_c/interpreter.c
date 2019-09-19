@@ -331,7 +331,6 @@ void print(Obj *o)
 			}else{
 				print(o);
 			}
-			
 			if(o->type!=T_CELL||o->cdr==Nil){
 				  break;
 			}
@@ -352,6 +351,13 @@ int peek(FILE *in){
 	int c=getc(in);
 	ungetc(c,in);
 	return c;
+}
+
+Obj *read_quote(FILE *in){
+	Obj *sym=intern("quote");
+	Obj *o =read(in);
+	return cons(sym,cons(o,Nil));
+
 }
 
 Obj * read_sym(FILE *in){
@@ -424,6 +430,9 @@ Obj *read(FILE *in)
 			continue;
 		if (c ==EOF)
 			return NULL;
+		if(c=='\''){
+			return read_quote(in);
+		}
 		if(c=='.'){
 			return Dot;
 		}
